@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ndrsgg.hcloud",
+  "name": "Hetzner Cloud",
+  "version": "0.1.0",
+  "author": "ndrsgg",
+  "license": "MIT",
+  "homepage": "https://github.com/ndrsgg/omarchy-hcloud",
+  "repository": "https://github.com/ndrsgg/omarchy-hcloud",
+  "description": "Hetzner Cloud server info in the Omarchy bar: state, addresses, live CPU, quick copy, and an ssh config that writes itself.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Hetzner Cloud",
+    "description": "See every Hetzner Cloud server across your projects, copy its addresses, watch its CPU, and keep ~/.ssh/config in step with the fleet.",
+    "category": "Developer Tools",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 300,
+      "syncSshConfig": false,
+      "sshUser": "root",
+      "sshKey": "",
+      "accounts": [],
+      "idleIntervalSec": 600,
+      "demo": false
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "description": "How often to poll the Hetzner Cloud API for every project token while the panel is open. Five minutes by default; the panel has buttons for 1, 5, 15 and 60.",
+        "min": 15,
+        "max": 3600,
+        "step": 15,
+        "defaultValue": 300
+      },
+      {
+        "key": "idleIntervalSec",
+        "type": "integer",
+        "label": "Idle interval (seconds)",
+        "description": "How often to poll while the panel is closed. Never faster than the refresh interval.",
+        "min": 60,
+        "max": 86400,
+        "step": 60,
+        "defaultValue": 600
+      },
+      {
+        "key": "syncSshConfig",
+        "type": "boolean",
+        "label": "Sync ~/.ssh/config",
+        "description": "Write a Host entry for every server into ~/.ssh/config, between the hcloud-sync markers. Off by default; the rest of your ssh config is left alone and backed up before the first write.",
+        "defaultValue": false
+      },
+      {
+        "key": "sshUser",
+        "type": "string",
+        "label": "SSH user",
+        "description": "User written into every generated Host entry. Hetzner images start with root. Override per project with your own Host block above the markers.",
+        "defaultValue": "root"
+      },
+      {
+        "key": "sshKey",
+        "type": "string",
+        "label": "SSH identity file",
+        "description": "IdentityFile written into every generated Host entry. Empty, the default, writes none and lets ssh try your usual keys and the agent. Set it only for a key with an unusual name.",
+        "defaultValue": ""
+      }
+    ]
+  }
+}

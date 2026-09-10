@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <!-- Symbolic form of the Hetzner mark: a filled disc with the H knocked out
+       of it. One path, even-odd, so the H is genuinely transparent rather than
+       a shape in some assumed background colour. White on transparent, because
+       the shell tints it with MultiEffect, which maps white exactly onto the
+       target colour.
+
+       The disc is 81% of the box — the same share of its canvas that the bar's
+       glyph icons ink, 13px of 16 — so it does not outweigh them, and its
+       antialiased edge has somewhere to live inside the raster.
+
+       The H did not shrink with the disc. Its counter is the thinnest thing
+       here and the first to close up, so it keeps the absolute size it had
+       against a larger disc and simply sits more generously inside this one. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M 38 200 A 162 162 0 1 0 362 200 A 162 162 0 1 0 38 200 Z M 288 104.9 L 261.4 104.9 C 255.5 104.9 252.9 107.3 252.9 113.4 L 252.9 180.7 L 147.2 180.7 L 147.2 113.4 C 147.2 107.4 144.7 104.9 138.6 104.9 L 111.9 104.9 C 105.9 104.9 103.4 107.3 103.4 113.4 L 103.4 286.5 C 103.4 292.5 105.9 295 111.9 295 L 138.6 295 C 144.6 295 147.2 292.6 147.2 286.5 L 147.2 218.1 L 253 218.1 L 253 286.5 C 253 292.4 255.5 295 261.5 295 L 288.1 295 C 294 295 296.6 292.5 296.6 286.5 L 296.6 113.4 C 296.4 107.6 294 104.9 288 104.9 Z"/>
+</svg>

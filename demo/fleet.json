@@ -1,0 +1,661 @@
+{
+  "_comment": "Invented fleet for screenshots and a first look. Addresses are from the RFC 5737 / RFC 3849 documentation ranges; nothing here exists.",
+  "projects": {
+    "production": {
+      "servers": [
+        {
+          "id": 10001,
+          "name": "web-1",
+          "status": "running",
+          "created": "2025-11-03T08:41:12+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 549755813888,
+          "ingoing_traffic": 329853488332,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.10",
+              "dns_ptr": "static.10.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:1::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.2"
+            }
+          ],
+          "server_type": {
+            "name": "cpx21",
+            "cores": 3,
+            "memory": 4,
+            "disk": 80
+          },
+          "datacenter": {
+            "name": "fsn1-dc14",
+            "location": {
+              "name": "fsn1",
+              "city": "Falkenstein",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "ubuntu-24.04",
+            "description": "Ubuntu 24.04",
+            "os_flavor": "ubuntu",
+            "os_version": "24.04"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": {
+            "name": "web-spread"
+          },
+          "labels": {
+            "env": "prod",
+            "role": "web"
+          },
+          "volumes": [
+            502
+          ]
+        },
+        {
+          "id": 10002,
+          "name": "db-1",
+          "status": "running",
+          "created": "2025-06-18T14:02:55+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 51539607552,
+          "ingoing_traffic": 30923764531,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.11",
+              "dns_ptr": "static.11.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:2::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.3"
+            }
+          ],
+          "server_type": {
+            "name": "ccx23",
+            "cores": 4,
+            "memory": 16,
+            "disk": 160
+          },
+          "datacenter": {
+            "name": "fsn1-dc14",
+            "location": {
+              "name": "fsn1",
+              "city": "Falkenstein",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "debian-12",
+            "description": "Debian 12",
+            "os_flavor": "debian",
+            "os_version": "12"
+          },
+          "protection": {
+            "delete": true,
+            "rebuild": true
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "prod",
+            "role": "database"
+          },
+          "volumes": [
+            501
+          ]
+        },
+        {
+          "id": 10003,
+          "name": "web-2",
+          "status": "running",
+          "created": "2026-01-12T09:15:00+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 534723428352,
+          "ingoing_traffic": 320834057011,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.12",
+              "dns_ptr": "static.12.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:3::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.4"
+            }
+          ],
+          "server_type": {
+            "name": "cpx21",
+            "cores": 3,
+            "memory": 4,
+            "disk": 80
+          },
+          "datacenter": {
+            "name": "nbg1-dc14",
+            "location": {
+              "name": "nbg1",
+              "city": "Nuremberg",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "ubuntu-24.04",
+            "description": "Ubuntu 24.04",
+            "os_flavor": "ubuntu",
+            "os_version": "24.04"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": {
+            "name": "web-spread"
+          },
+          "labels": {
+            "env": "prod",
+            "role": "web"
+          },
+          "volumes": []
+        },
+        {
+          "id": 10004,
+          "name": "cache-1",
+          "status": "off",
+          "created": "2026-02-02T16:30:41+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 3221225472,
+          "ingoing_traffic": 1932735283,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.13",
+              "dns_ptr": "static.13.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:4::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.5"
+            }
+          ],
+          "server_type": {
+            "name": "cx22",
+            "cores": 2,
+            "memory": 4,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "fsn1-dc14",
+            "location": {
+              "name": "fsn1",
+              "city": "Falkenstein",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "rocky-9",
+            "description": "Rocky 9",
+            "os_flavor": "rocky",
+            "os_version": "9"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "prod",
+            "role": "cache"
+          },
+          "volumes": []
+        },
+        {
+          "id": 10005,
+          "name": "worker-1",
+          "status": "starting",
+          "created": "2026-09-09T07:58:03+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 12884901888,
+          "ingoing_traffic": 7730941132,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.14",
+              "dns_ptr": "static.14.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:5::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.6"
+            }
+          ],
+          "server_type": {
+            "name": "cax11",
+            "cores": 2,
+            "memory": 4,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "hel1-dc14",
+            "location": {
+              "name": "hel1",
+              "city": "Helsinki",
+              "country": "FI"
+            }
+          },
+          "image": {
+            "name": "arch-2026-08-snapshot",
+            "description": "arch-2026-08-snapshot",
+            "os_flavor": "unknown",
+            "os_version": "snapshot"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "prod",
+            "role": "worker"
+          },
+          "volumes": []
+        },
+        {
+          "id": 10006,
+          "name": "bastion",
+          "status": "running",
+          "created": "2025-03-30T11:11:11+00:00",
+          "locked": true,
+          "backup_window": "22-02",
+          "outgoing_traffic": 536870912,
+          "ingoing_traffic": 322122547,
+          "included_traffic": 21990232555520,
+          "public_net": {
+            "ipv4": {
+              "ip": "203.0.113.15",
+              "dns_ptr": "static.15.113.0.203.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:6::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              },
+              {
+                "id": 11,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.0.0.7"
+            }
+          ],
+          "server_type": {
+            "name": "cx22",
+            "cores": 2,
+            "memory": 4,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "fsn1-dc14",
+            "location": {
+              "name": "fsn1",
+              "city": "Falkenstein",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "debian-12",
+            "description": "Debian 12",
+            "os_flavor": "debian",
+            "os_version": "12"
+          },
+          "protection": {
+            "delete": true,
+            "rebuild": true
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "prod",
+            "role": "bastion"
+          },
+          "volumes": []
+        }
+      ],
+      "volumes": [
+        {
+          "id": 501,
+          "name": "pg-data",
+          "size": 100,
+          "server": 10002,
+          "linux_device": "/dev/disk/by-id/scsi-0HC_Volume_501",
+          "format": "ext4",
+          "status": "available"
+        },
+        {
+          "id": 502,
+          "name": "media",
+          "size": 500,
+          "server": 10001,
+          "linux_device": "/dev/disk/by-id/scsi-0HC_Volume_502",
+          "format": "xfs",
+          "status": "available"
+        }
+      ],
+      "storage_boxes": [
+        {
+          "id": 645388,
+          "username": "u123456",
+          "status": "active",
+          "name": "backups",
+          "storage_box_type": {
+            "name": "bx21",
+            "description": "BX21",
+            "size": 5497558138880,
+            "snapshot_limit": 20
+          },
+          "location": {
+            "country": "DE",
+            "city": "Falkenstein",
+            "name": "fsn1"
+          },
+          "protection": {
+            "delete": true
+          },
+          "access_settings": {
+            "webdav_enabled": false,
+            "zfs_enabled": false,
+            "samba_enabled": true,
+            "ssh_enabled": true,
+            "reachable_externally": true
+          },
+          "server": "u123456.your-storagebox.de",
+          "system": "FSN1-BX737",
+          "stats": {
+            "size": 1583095775232,
+            "size_data": 1320095775232,
+            "size_snapshots": 263000000000
+          },
+          "snapshot_plan": {
+            "max_snapshots": 10
+          },
+          "created": "2025-09-04T16:15:26Z"
+        }
+      ]
+    },
+    "staging": {
+      "servers": [
+        {
+          "id": 20001,
+          "name": "app-1",
+          "status": "running",
+          "created": "2026-05-05T10:00:00+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 9663676416,
+          "ingoing_traffic": 5798205849,
+          "included_traffic": 1099511627776,
+          "public_net": {
+            "ipv4": {
+              "ip": "198.51.100.20",
+              "dns_ptr": "static.20.100.51.198.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:20::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.1.0.2"
+            }
+          ],
+          "server_type": {
+            "name": "cpx11",
+            "cores": 2,
+            "memory": 2,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "nbg1-dc14",
+            "location": {
+              "name": "nbg1",
+              "city": "Nuremberg",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "ubuntu-24.04",
+            "description": "Ubuntu 24.04",
+            "os_flavor": "ubuntu",
+            "os_version": "24.04"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "staging"
+          },
+          "volumes": []
+        },
+        {
+          "id": 20002,
+          "name": "db-1",
+          "status": "running",
+          "created": "2026-05-05T10:04:00+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 2147483648,
+          "ingoing_traffic": 1288490188,
+          "included_traffic": 1099511627776,
+          "public_net": {
+            "ipv4": {
+              "ip": "198.51.100.21",
+              "dns_ptr": "static.21.100.51.198.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:21::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [
+            {
+              "ip": "10.1.0.3"
+            }
+          ],
+          "server_type": {
+            "name": "cx22",
+            "cores": 2,
+            "memory": 4,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "nbg1-dc14",
+            "location": {
+              "name": "nbg1",
+              "city": "Nuremberg",
+              "country": "DE"
+            }
+          },
+          "image": {
+            "name": "debian-12",
+            "description": "Debian 12",
+            "os_flavor": "debian",
+            "os_version": "12"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "staging",
+            "role": "database"
+          },
+          "volumes": [
+            601
+          ]
+        },
+        {
+          "id": 20003,
+          "name": "preview",
+          "status": "off",
+          "created": "2026-08-21T18:45:09+00:00",
+          "locked": false,
+          "backup_window": "22-02",
+          "outgoing_traffic": 0,
+          "ingoing_traffic": 0,
+          "included_traffic": 1099511627776,
+          "public_net": {
+            "ipv4": {
+              "ip": "198.51.100.22",
+              "dns_ptr": "static.22.100.51.198.clients.your-server.de"
+            },
+            "ipv6": {
+              "ip": "2001:db8:22::/64"
+            },
+            "firewalls": [
+              {
+                "id": 10,
+                "status": "applied"
+              }
+            ]
+          },
+          "private_net": [],
+          "server_type": {
+            "name": "cx22",
+            "cores": 2,
+            "memory": 4,
+            "disk": 40
+          },
+          "datacenter": {
+            "name": "hel1-dc14",
+            "location": {
+              "name": "hel1",
+              "city": "Helsinki",
+              "country": "FI"
+            }
+          },
+          "image": {
+            "name": "fedora-40",
+            "description": "Fedora 40",
+            "os_flavor": "fedora",
+            "os_version": "40"
+          },
+          "protection": {
+            "delete": false,
+            "rebuild": false
+          },
+          "rescue_enabled": false,
+          "iso": null,
+          "placement_group": null,
+          "labels": {
+            "env": "staging",
+            "ttl": "7d"
+          },
+          "volumes": []
+        }
+      ],
+      "volumes": [
+        {
+          "id": 601,
+          "name": "scratch",
+          "size": 50,
+          "server": 20002,
+          "linux_device": "/dev/disk/by-id/scsi-0HC_Volume_601",
+          "format": "ext4",
+          "status": "available"
+        }
+      ],
+      "storage_boxes": []
+    }
+  }
+}
