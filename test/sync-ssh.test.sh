@@ -125,9 +125,25 @@ printf 'Host keep\n' > "$H/.ssh/config"; head -c 1100000 /dev/zero | tr '\0' '#'
 out=$(echo "$JOB" | sync "$H")
 check "an ssh config past its ceiling is refused rather than read" "$(contains "$out" 'exceeds')"
 
+# --- the shell writes one line and keeps the pipe open -----------------------
+# Quickshell's Process never closes stdin on its own. A read to EOF here hung
+# the store and the sync for good; a line read answers as soon as the line is in.
+H="$(sandbox openpipe)"
+out=$( ( echo "$JOB"; sleep 3 ) | timeout 2 env HOME="$H" "$BRIDGE" sync-ssh; echo "rc=$?" )
+check "a sync job answers while stdin stays open" "$(contains "$out" '"changed": true')"
+check "and does not run into the timeout" "$([[ $out == *"rc=0"* ]] && echo yes || echo no)"
+out=$( ( printf '%s\n' "$(head -c $((256 * 1024)) /dev/zero | tr '\0' 'a')"; sleep 3 ) | timeout 2 env HOME="$H" "$BRIDGE" sync-ssh; echo "rc=$?" )
+check "a line exactly at the ceiling is read, the newline not counted" "$(contains "$out" 'expects a JSON object')"
+out=$( ( printf '%s\n' "$(head -c $((256 * 1024 + 1)) /dev/zero | tr '\0' 'a')"; sleep 3 ) | timeout 2 env HOME="$H" "$BRIDGE" sync-ssh; echo "rc=$?" )
+check "one byte past it is refused" "$(contains "$out" 'exceeds')"
+out=$( ( echo "tok en"; sleep 3 ) | timeout 2 env HOME="$H" "$BRIDGE" store openpipe-probe; echo "rc=$?" )
+check "a token answers while stdin stays open, refused before any keyring access" "$(contains "$out" 'no whitespace')"
+
 # --- argv validation happens before any keyring access -----------------------
 out=$("$BRIDGE" metrics prod ../etc 2>&1)
 check "a non-numeric server id never reaches a URL" "$(contains "$out" 'numeric server id')"
+out=$("$BRIDGE" metrics prod '²' 2>&1)
+check "nor does a digit str.isdigit() would take" "$(contains "$out" 'numeric server id')"
 out=$("$BRIDGE" servers -x 2>&1)
 check "a label that looks like an option is that project's error" "$(contains "$out" 'Invalid label')"
 

@@ -347,8 +347,13 @@ assert(/def read_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.read\(limit 
 assert(/read_capped\(response, MAX_BODY, "API response"\)/.test(bridgeSource), 'an HTTP body is capped')
 assert(/read_capped\(error, MAX_ERROR_BODY, "API error body"\)/.test(bridgeSource), 'and so is an HTTP error body')
 assert(/if total_bytes > MAX_LIST_BYTES:/.test(bridgeSource) && /if len\(items\) > MAX_ITEMS:/.test(bridgeSource), 'a paginated list is capped in bytes and records')
-assert(/read_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
+// stdin is a line, not a stream: the shell writes one line and keeps the pipe
+// open, so a read to EOF would hang the store and the sync for good.
+assert(/def read_line_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.readline\(limit \+ 2\)[\s\S]*?if len\(data\) > limit:\s*\n\s*raise ValueError/.test(bridgeSource),
+  'a line from stdin is capped with max+1 rejection, the newline not counted')
+assert(/read_line_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_line_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
   'stdin is capped for the token and the sync job')
+assert(!/read_capped\(sys\.stdin/.test(bridgeSource), 'and never read to EOF')
 assert((bridgeSource.match(/read_file_capped\(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG\)/g) || []).length === 2, 'the ssh config is read to a ceiling, in the sync and in the uninstall')
 assert(/read_file_capped\(DEMO_FILE, MAX_DEMO_FILE, "demo file"\)/.test(bridgeSource), 'and so is the demo file')
 assert(/\[:MAX_SAMPLES\]/.test(bridgeSource), 'a metrics series is capped in samples')
@@ -357,6 +362,17 @@ assert(!/\.read\(\)/.test(bridgeSource), 'no unbounded read is left anywhere in 
 assert(/def project_server\(raw\)/.test(bridgeSource) && /def project_volume\(raw\)/.test(bridgeSource) && /def project_box\(raw\)/.test(bridgeSource),
   'every record is projected to the fields the panel reads')
 assert(/def clip\(value, limit=MAX_STRING\)/.test(bridgeSource), 'and every string is cut to size')
+// The serialized answer is measured before a byte of it is written.
+assert(/def emit\(payload\):[\s\S]*?text = json\.dumps\(payload\)[\s\S]*?if len\(text\) > MAX_OUTPUT:[\s\S]*?sys\.stdout\.write\(text\)/.test(bridgeSource),
+  'an answer past the output ceiling is refused before it is written')
+assert(!/json\.dump\(/.test(bridgeSource), 'nothing is streamed to stdout unmeasured')
+assert(/def bounded_entry\(entry\):[\s\S]*?> MAX_PROJECT_OUTPUT/.test(bridgeSource.replace('<= MAX_PROJECT_OUTPUT', '> MAX_PROJECT_OUTPUT'))
+  && (bridgeSource.match(/return bounded_entry\(\{/g) || []).length === 2,
+  'a project past its share becomes an error in its place, in the real and the demo path')
+assert(/^MAX_OUTPUT = 16 \* 1024 \* 1024/m.test(bridgeSource) && /^MAX_PROJECT_OUTPUT = 4 \* 1024 \* 1024/m.test(bridgeSource),
+  'and both ceilings sit under the shell\'s 32 MB')
+assert(!/\.isdigit\(\)/.test(bridgeSource.replace(/^\s*#.*$/gm, '')) && /DIGITS_RE = re\.compile\(r"\^\[0-9\]\+\$"\)/.test(bridgeSource),
+  'a server id or window is ASCII digits, not anything str.isdigit() would take')
 const modelText = fs.readFileSync(path.join(root, 'Model.js'), 'utf8')
 assert(/MAX_BRIDGE_OUTPUT/.test(modelText) && /text\.length > MAX_BRIDGE_OUTPUT/.test(modelText), 'the shell refuses an oversized answer before parsing it')
 assertEqual(Model.parseBridge('x'.repeat(33 * 1024 * 1024)).ok, false, 'an oversized bridge answer is an error, not a parse')
@@ -369,6 +385,15 @@ assertEqual((serviceSource.match(/BoundedCollector \{ id: \w+; process: \w+Proce
 assert(/exitCode === 0 && !serversStdout\.overflowed/.test(serviceSource) && /answer exceeded/.test(serviceSource),
   'an overflowed answer is reported, never parsed')
 assert(!/secret\s*\+/.test(serviceSource.replace(/write\(secret \+ "\\n"\)/, '')), 'the token is only ever written to stdin')
+// Quickshell never closes a process's stdin by itself; the bridge reads one
+// line to a ceiling, so the shell closes stdin after the line, and opens it
+// again before the next launch since a closed one stays closed.
+assert(/write\(secret \+ "\\n"\)\s*\n\s*secret = ""[\s\S]*?stdinEnabled = false/.test(serviceSource)
+  && /write\(job \+ "\\n"\)\s*\n\s*job = ""\s*\n\s*stdinEnabled = false/.test(serviceSource),
+  'stdin is closed after the one line the store and the sync write')
+assert(/storeProcess\.stdinEnabled = true\s*\n\s*storeProcess\.running = true/.test(serviceSource)
+  && /syncProcess\.stdinEnabled = true\s*\n\s*syncProcess\.running = true/.test(serviceSource),
+  'and opened again before each launch')
 assert(/bridgeArgs\("store"\)\.concat\(\[key\]\)/.test(serviceSource), 'only the keyring key travels on the bridge command line')
 assert(!/Bearer/.test(panelSource + serviceSource), 'no Authorization header is built in QML')
 assert(/per_page=%d&page=%d/.test(bridgeSource), 'the bridge paginates explicitly')
@@ -842,7 +867,7 @@ assertDeepEqual(declaredTables.filter((name, i) => declaredTables.indexOf(name) 
 assert(/ALIAS_RE = re\.compile/.test(bridgeSource), 'the bridge has a rule for what a Host may be called')
 assert(/ipaddress\.ip_address/.test(bridgeSource), 'and insists that a HostName is an address')
 assert(/os\.path\.realpath/.test(bridgeSource), 'a symlinked ssh config is followed, not replaced')
-assert(/isdigit\(\)/.test(bridgeSource.slice(bridgeSource.indexOf('def command_metrics'))),
+assert(/DIGITS_RE\.match\(str\(server_id\)\)/.test(bridgeSource.slice(bridgeSource.indexOf('def command_metrics'))),
   'a server id is a number before it goes into a URL')
 assert(/except Exception as error:[^\n]*\n\s*return fail\(/.test(bridgeSource.slice(bridgeSource.indexOf('def main'))),
   'no failure in the bridge leaves as a traceback')

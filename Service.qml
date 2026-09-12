@@ -122,8 +122,8 @@ Item {
   signal tokenRemoved(string label)
 
   // What the shell will hold of a bridge answer before it stops listening.
-  // The bridge caps its own output well below this; the ceiling is here so the
-  // shell does not depend on that being true.
+  // The bridge measures its own answer before writing it and refuses past
+  // 16 MB; the ceiling is here so the shell does not depend on that being true.
   readonly property int maxBridgeOutput: 32 * 1024 * 1024
   readonly property int maxMetricsOutput: 8 * 1024 * 1024
   readonly property int maxSmallOutput: 64 * 1024
@@ -363,6 +363,7 @@ Item {
     syncStderr.reset()
     syncProcess.job = JSON.stringify(job)
     syncProcess.command = bridgeArgs("sync-ssh")
+    syncProcess.stdinEnabled = true
     syncProcess.running = true
   }
 
@@ -400,6 +401,9 @@ Item {
     storeStderr.reset()
     storeProcess.secret = secret
     storeProcess.command = bridgeArgs("store").concat([key])
+    // Closed after the write on the last run; a closed stdin at launch stays
+    // closed, so it is opened again before every start.
+    storeProcess.stdinEnabled = true
     storeProcess.running = true
     return true
   }
@@ -533,6 +537,11 @@ Item {
     onStarted: {
       write(secret + "\n")
       secret = ""
+      // The line is the whole message. Closing stdin says so — Quickshell
+      // never closes it on its own, and the bridge reads to a ceiling, so it
+      // must not be left waiting on an end that never comes. The close is
+      // queued behind the write, so nothing is cut off.
+      stdinEnabled = false
     }
     stdout: BoundedCollector { id: storeStdout; process: storeProcess }
     stderr: BoundedCollector { id: storeStderr; process: storeProcess }
@@ -580,6 +589,7 @@ Item {
     onStarted: {
       write(job + "\n")
       job = ""
+      stdinEnabled = false
     }
     stdout: BoundedCollector { id: syncStdout; process: syncProcess }
     stderr: BoundedCollector { id: syncStderr; process: syncProcess }

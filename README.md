@@ -278,10 +278,12 @@ address for the keyring — and calls `secret-tool` by its fixed path. Everythin
 that comes in from outside is read to a ceiling plus one byte and refused past
 it: HTTP bodies, paginated lists in both records and bytes, metric series,
 stdin, `~/.ssh/config` and the demo file. Every record is projected to the
-fields the panel reads, with strings cut to size, before it is serialized. On
-the shell side the bridge's output is read through a collector with a ceiling
-of its own — past it the process is stopped and the answer discarded — and the
-parser refuses anything above its limit before it starts.
+fields the panel reads, with strings cut to size, before it is serialized, and
+the serialized answer is measured before it is written: a project past 4 MB
+becomes an error in its place, an answer past 16 MB is refused whole. On the
+shell side the bridge's output is read through a collector with a ceiling of
+its own, 32 MB — past it the process is stopped and the answer discarded — and
+the parser refuses anything above its limit before it starts.
 
 ## Storage Boxes
 

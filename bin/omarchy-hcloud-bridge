@@ -71,6 +71,13 @@ MAX_SSH_CONFIG = 1024 * 1024        # ~/.ssh/config
 MAX_DEMO_FILE = 2 * 1024 * 1024     # demo/fleet.json
 MAX_STRING = 256                    # any string carried into the output
 MAX_LABELS = 64                     # label pairs per server
+# What goes back to the shell, serialized. Every record is already projected
+# and clipped, but a fleet at every one of those limits at once would still
+# add up, so the whole answer is measured before a byte of it is written, and
+# a project that would not fit is replaced by an error saying so. Both sit
+# well under the shell's own 32 MB ceiling on what it will hold of an answer.
+MAX_OUTPUT = 16 * 1024 * 1024       # one answer to the shell
+MAX_PROJECT_OUTPUT = 4 * 1024 * 1024  # one project's share of it
 # The real file, not the path. People keep ~/.ssh/config as a symlink into a
 # dotfiles checkout, and an atomic replace of the path would swap the link for
 # a plain file and leave the checkout untouched.
@@ -81,6 +88,9 @@ SSH_BACKUP = SSH_CONFIG + ".hcloud-sync.bak"
 # a stray newline in any field would smuggle in a ProxyCommand. Nothing is
 # written unless every field passes.
 ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+# ASCII digits only. str.isdigit() also says yes to "²", which int() then
+# refuses and a URL would carry as-is.
+DIGITS_RE = re.compile(r"^[0-9]+$")
 NO_WHITESPACE_RE = re.compile(r"^\S*$")
 BLOCK_START = "# --- hcloud-sync START ---"
 BLOCK_END = "# --- hcloud-sync END ---"
@@ -115,9 +125,19 @@ MAX_PAGES = 50
 
 
 def emit(payload):
-    json.dump(payload, sys.stdout)
+    """Write one JSON document, or an error in its place if it would not fit.
+
+    Serialized first and measured, so the shell is never handed an answer
+    past MAX_OUTPUT. json.dumps escapes to ASCII, so characters are bytes.
+    """
+    text = json.dumps(payload)
+    code = 0
+    if len(text) > MAX_OUTPUT:
+        text = json.dumps({"ok": False, "error": "answer exceeds %d bytes" % MAX_OUTPUT})
+        code = 2
+    sys.stdout.write(text)
     sys.stdout.write("\n")
-    return 0
+    return code
 
 
 def fail(message, code=2):
@@ -136,6 +156,21 @@ def read_capped(stream, limit, what):
     data = stream.read(limit + 1)
     if data is None:
         return b""
+    if len(data) > limit:
+        raise ValueError("%s exceeds %d bytes" % (what, limit))
+    return data
+
+
+def read_line_capped(stream, limit, what):
+    """Read one line of at most `limit` bytes; refuse rather than truncate.
+
+    A line, not the stream: the shell writes one line and keeps the pipe open,
+    so a read to EOF would wait for a close that never comes. The newline is
+    the terminator, not part of what is measured.
+    """
+    data = stream.readline(limit + 2)
+    if data.endswith(b"\n"):
+        data = data[:-1]
     if len(data) > limit:
         raise ValueError("%s exceeds %d bytes" % (what, limit))
     return data
@@ -475,6 +510,14 @@ def api_error(error):
     return 0, str(error)
 
 
+def bounded_entry(entry):
+    """A project's answer, or an error in its place when it would not fit."""
+    if len(json.dumps(entry)) <= MAX_PROJECT_OUTPUT:
+        return entry
+    return {"label": entry["label"], "ok": False, "status": 0,
+            "error": "Project answer exceeds %d bytes" % MAX_PROJECT_OUTPUT, "servers": []}
+
+
 def project_entry(label):
     try:
         token = lookup_token(label)
@@ -508,7 +551,7 @@ def project_entry(label):
         # Volumes are detail; the list is worth showing without them.
         if volumes_error is not None:
             volumes = []
-        return {
+        return bounded_entry({
             "label": label,
             "ok": True,
             "status": 200,
@@ -517,7 +560,7 @@ def project_entry(label):
             "storage_boxes": [project_box(box) for box in (boxes or [])],
             "storage_boxes_error": api_error(boxes_error)[1] if boxes_error is not None else "",
             "timings_ms": timings,
-        }
+        })
     except Exception as error:  # noqa: BLE001 - every failure becomes panel text
         status, message = api_error(error)
         return {
@@ -543,13 +586,13 @@ def demo_project(label):
         return {"label": label, "ok": False, "status": 0,
                 "error": "No demo project named \"%s\"" % label, "servers": []}
     servers = json.loads(json.dumps(project.get("servers") or []))
-    return {
+    return bounded_entry({
         "label": label, "ok": True, "status": 200, "error": "",
         "servers": attach_volumes(servers, as_list(project.get("volumes"))),
         "storage_boxes": [project_box(box) for box in as_list(project.get("storage_boxes"))],
         "storage_boxes_error": "",
         "timings_ms": {"servers": 0, "volumes": 0, "storage_boxes": 0},
-    }
+    })
 
 
 def demo_metrics(server_id, window):
@@ -584,7 +627,7 @@ def command_servers(labels):
 def command_store(label):
     if DEMO:
         return fail("Demo data is on — nothing is stored")
-    token = read_capped(sys.stdin.buffer, MAX_TOKEN, "token").decode("utf-8", "replace").strip()
+    token = read_line_capped(sys.stdin.buffer, MAX_TOKEN, "token").decode("utf-8", "replace").strip()
     if not token or any(ch.isspace() for ch in token):
         return fail("No token on stdin" if not token else "A token has no whitespace in it")
     store_token(label, token)
@@ -678,7 +721,7 @@ WINDOWS = {3600: 60, 86400: 900, 604800: 3600}
 
 
 def command_metrics(label, server_id, window):
-    if not str(server_id).isdigit():
+    if not DIGITS_RE.match(str(server_id)):
         return fail("metrics needs a numeric server id")
     if DEMO:
         return demo_metrics(server_id, window)
@@ -770,7 +813,7 @@ def read_sync_job():
     Refusing the whole job is deliberate: silently dropping one bad host would
     delete it from the config, which is the failure the sync is built to avoid.
     """
-    raw = read_capped(sys.stdin.buffer, MAX_STDIN, "sync job").decode("utf-8", "replace")
+    raw = read_line_capped(sys.stdin.buffer, MAX_STDIN, "sync job").decode("utf-8", "replace")
     try:
         job = json.loads(raw or "{}")
     except ValueError:
@@ -894,7 +937,7 @@ def main(argv):
         if command == "metrics":
             if len(args) < 2:
                 return fail("metrics needs a label and a server id")
-            window = int(args[2]) if len(args) > 2 and args[2].isdigit() else 3600
+            window = int(args[2]) if len(args) > 2 and DIGITS_RE.match(args[2]) else 3600
             if window not in WINDOWS:
                 window = 3600
             return command_metrics(args[0], args[1], window)
