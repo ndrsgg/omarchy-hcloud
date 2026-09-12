@@ -116,6 +116,15 @@ out=$(printf '%s\n' 'not json' | sync "$H")
 check "unparseable input is refused as JSON, not as a traceback" "$(contains "$out" '"ok": false')"
 check "none of that touched the directory" "$([[ $(ls -A "$H/.ssh" | wc -l) == "$before_count" ]] && echo yes || echo no)"
 
+# --- inputs past their ceiling are refused, not truncated ---------------------
+H="$(sandbox ceiling)"
+out=$(head -c 300000 /dev/zero | tr '\0' 'a' | sync "$H")
+check "a sync job past its ceiling is refused" "$(contains "$out" 'exceeds')"
+check "and nothing was written" "$([[ ! -e $H/.ssh/config ]] && echo yes || echo no)"
+printf 'Host keep\n' > "$H/.ssh/config"; head -c 1100000 /dev/zero | tr '\0' '#' >> "$H/.ssh/config"
+out=$(echo "$JOB" | sync "$H")
+check "an ssh config past its ceiling is refused rather than read" "$(contains "$out" 'exceeds')"
+
 # --- argv validation happens before any keyring access -----------------------
 out=$("$BRIDGE" metrics prod ../etc 2>&1)
 check "a non-numeric server id never reaches a URL" "$(contains "$out" 'numeric server id')"
@@ -126,8 +135,7 @@ check "a label that looks like an option is that project's error" "$(contains "$
 H="$(sandbox uninstall)"
 printf 'Host keep\n    HostName 10.0.0.1\n\n' > "$H/.ssh/config"
 echo "$JOB" | sync "$H" >/dev/null
-FAKEBIN="$(mktemp -d)"; printf '#!/bin/sh\nexit 0\n' > "$FAKEBIN/secret-tool"; chmod +x "$FAKEBIN/secret-tool"
-out=$(HOME="$H" PATH="$FAKEBIN:$PATH" "$BRIDGE" uninstall)
+out=$(HOME="$H" "$BRIDGE" uninstall)
 check "uninstall reports the block gone" "$(contains "$out" '"ssh_block_removed": true')"
 check "the markers are gone" "$([[ $(cat "$H/.ssh/config") != *"hcloud-sync"* ]] && echo yes || echo no)"
 check "and the hand-written entry stays" "$(contains "$(cat "$H/.ssh/config")" 'Host keep')"

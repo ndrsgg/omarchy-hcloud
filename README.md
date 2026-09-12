@@ -53,9 +53,10 @@ to put it. Then click the Hetzner mark, give your first project a label, and
 paste a token created in the Cloud Console under **Security → API tokens →
 Generate** with **Read** permission.
 
-Requires `python3`, `secret-tool` (libsecret) with a running keyring, and
-`wl-copy` for the copy actions. Nothing is written outside the keyring unless
-you turn the SSH config sync on.
+Requires `/usr/bin/python3`, `/usr/bin/secret-tool` (libsecret) with a
+running keyring, and `/usr/bin/wl-copy` for the copy actions — by those exact
+paths; the plugin never looks anything up on `PATH`. Nothing is written
+outside the keyring unless you turn the SSH config sync on.
 
 <details>
 <summary>Install by hand</summary>
@@ -270,6 +271,15 @@ It is never written to `shell.json` and never appears on a command line —
 local user. `bin/omarchy-hcloud-bridge` reads the token from the keyring
 itself and prints only JSON; when you add a token, the shell hands it to the
 bridge over stdin. No Omarchy QML ever builds an `Authorization` header.
+
+The bridge runs as `/usr/bin/python3 -I` from a cleared environment that holds
+only what it needs — `HOME`, a system-only `PATH`, the locale and the D-Bus
+address for the keyring — and calls `secret-tool` by its fixed path. Everything
+that comes in from outside is read to a ceiling plus one byte and refused past
+it: HTTP bodies, paginated lists in both records and bytes, metric series,
+stdin, `~/.ssh/config` and the demo file. Every record is projected to the
+fields the panel reads, with strings cut to size, before it is serialized; the
+shell refuses an answer above its own ceiling before parsing it.
 
 ## Storage Boxes
 

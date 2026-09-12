@@ -330,9 +330,16 @@ function matchesQuery(server, query) {
 // are merged back under it here: servers and boxes pooled, duplicates dropped,
 // and one failing token marked against its label without hiding what the other
 // tokens did return.
+// The bridge caps what it emits; this is the shell's own line, drawn before
+// JSON.parse gets to work on anything larger than that.
+var MAX_BRIDGE_OUTPUT = 32 * 1024 * 1024
+
 function parseBridge(raw, accounts) {
   var text = str(raw).trim()
   if (text === "") return { ok: false, projects: [], error: "The Hetzner bridge returned nothing" }
+  if (text.length > MAX_BRIDGE_OUTPUT) {
+    return { ok: false, projects: [], error: "The Hetzner bridge answer was too large to read" }
+  }
   var data
   try {
     data = JSON.parse(text)
@@ -665,6 +672,9 @@ function parseMetrics(raw) {
   var text = str(raw).trim()
   if (text === "") return { ok: false, metrics: {}, series: [], window: 0,
                             error: "No answer from the metrics endpoint" }
+  if (text.length > MAX_BRIDGE_OUTPUT) {
+    return { ok: false, metrics: {}, series: [], window: 0, error: "The metrics answer was too large to read" }
+  }
   try {
     var data = JSON.parse(text)
     // A partial answer is still worth showing; the note rides along with it.

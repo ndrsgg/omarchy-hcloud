@@ -328,6 +328,38 @@ assert(!/poweron|poweroff|\breboot\b|shutdown/i.test(panelSource + serviceSource
 
 // The token must never reach a command line: /proc/<pid>/cmdline is 0444.
 assert(/stdinEnabled:\s*true/.test(serviceSource), 'the token reaches the bridge over stdin')
+
+// Trusted executables by fixed path, in an environment of our making.
+assert(/readonly property string pythonPath: "\/usr\/bin\/python3"/.test(serviceSource) && /\[pythonPath, "-I", bridgePath\]/.test(serviceSource),
+  'the bridge runs under /usr/bin/python3 -I, never an ambient python3')
+assertEqual((serviceSource.match(/clearEnvironment: true\s*\n\s*environment: root\.bridgeEnvironment/g) || []).length, 5,
+  'every bridge process starts from a cleared, minimal environment')
+assert(/PATH: "\/usr\/bin:\/bin"/.test(serviceSource), 'with a PATH of system directories only')
+assert(/execDetached\(\["\/usr\/bin\/wl-copy", "--", text\]\)/.test(serviceSource), 'the clipboard is reached by fixed path, without a shell')
+assert(!/"bash"/.test(serviceSource) && !/"python3"/.test(serviceSource), 'no executable is named without its path')
+assert(/^SECRET_TOOL = "\/usr\/bin\/secret-tool"/m.test(bridgeSource) && !/shutil\.which/.test(bridgeSource) && !/import shutil/.test(bridgeSource),
+  'secret-tool is a fixed path, not a PATH lookup')
+assert(/^#!\/usr\/bin\/python3$/m.test(bridgeSource), 'and so is the interpreter in the shebang')
+
+// Everything from outside is read to its ceiling plus one and refused past it.
+assert(/def read_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.read\(limit \+ 1\)[\s\S]*?if len\(data\) > limit:\s*\n\s*raise ValueError/.test(bridgeSource),
+  'reads are capped with max+1 rejection')
+assert(/read_capped\(response, MAX_BODY, "API response"\)/.test(bridgeSource), 'an HTTP body is capped')
+assert(/read_capped\(error, MAX_ERROR_BODY, "API error body"\)/.test(bridgeSource), 'and so is an HTTP error body')
+assert(/if total_bytes > MAX_LIST_BYTES:/.test(bridgeSource) && /if len\(items\) > MAX_ITEMS:/.test(bridgeSource), 'a paginated list is capped in bytes and records')
+assert(/read_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
+  'stdin is capped for the token and the sync job')
+assert((bridgeSource.match(/read_file_capped\(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG\)/g) || []).length === 2, 'the ssh config is read to a ceiling, in the sync and in the uninstall')
+assert(/read_file_capped\(DEMO_FILE, MAX_DEMO_FILE, "demo file"\)/.test(bridgeSource), 'and so is the demo file')
+assert(/\[:MAX_SAMPLES\]/.test(bridgeSource), 'a metrics series is capped in samples')
+assert(!/\.read\(\)/.test(bridgeSource), 'no unbounded read is left anywhere in the bridge')
+// The output is a fixed shape of bounded strings and numbers, projected before serialization.
+assert(/def project_server\(raw\)/.test(bridgeSource) && /def project_volume\(raw\)/.test(bridgeSource) && /def project_box\(raw\)/.test(bridgeSource),
+  'every record is projected to the fields the panel reads')
+assert(/def clip\(value, limit=MAX_STRING\)/.test(bridgeSource), 'and every string is cut to size')
+const modelText = fs.readFileSync(path.join(root, 'Model.js'), 'utf8')
+assert(/MAX_BRIDGE_OUTPUT/.test(modelText) && /text\.length > MAX_BRIDGE_OUTPUT/.test(modelText), 'the shell refuses an oversized answer before parsing it')
+assertEqual(Model.parseBridge('x'.repeat(33 * 1024 * 1024)).ok, false, 'an oversized bridge answer is an error, not a parse')
 assert(!/secret\s*\+/.test(serviceSource.replace(/write\(secret \+ "\\n"\)/, '')), 'the token is only ever written to stdin')
 assert(/bridgeArgs\("store"\)\.concat\(\[key\]\)/.test(serviceSource), 'only the keyring key travels on the bridge command line')
 assert(!/Bearer/.test(panelSource + serviceSource), 'no Authorization header is built in QML')

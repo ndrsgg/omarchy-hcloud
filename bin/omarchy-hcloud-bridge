@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Keyring-backed bridge between the Omarchy shell and the Hetzner Cloud API.
 
 The shell never sees a token. Tokens live in the login keyring under
@@ -40,7 +40,6 @@ import os
 import re
 import stat
 import tempfile
-import shutil
 import socket
 import subprocess
 import sys
@@ -52,6 +51,26 @@ import urllib.request
 DEMO_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "demo", "fleet.json")
 DEMO = False
 SERVICE = "omarchy-hcloud"
+# A fixed path, not a PATH lookup. This process holds tokens, and the one
+# thing it hands them to must not be whatever a writable directory earlier in
+# PATH happens to call secret-tool.
+SECRET_TOOL = "/usr/bin/secret-tool"
+
+# Ceilings. Everything that comes in from outside — an HTTP body, a page of
+# results, a line of stdin, a file on disk — is read to its limit plus one byte
+# and refused if that byte is there, so a broken or hostile source cannot make
+# this process, or the shell that waits for its output, grow without bound.
+MAX_BODY = 4 * 1024 * 1024          # one HTTP response body
+MAX_ERROR_BODY = 64 * 1024          # an HTTP error body
+MAX_ITEMS = 2000                    # servers, volumes or boxes per project
+MAX_LIST_BYTES = 16 * 1024 * 1024   # all pages of one list together
+MAX_SAMPLES = 2000                  # points in one metrics series
+MAX_STDIN = 256 * 1024              # a sync job on stdin
+MAX_TOKEN = 4 * 1024                # a token on stdin (Hetzner's are 64 chars)
+MAX_SSH_CONFIG = 1024 * 1024        # ~/.ssh/config
+MAX_DEMO_FILE = 2 * 1024 * 1024     # demo/fleet.json
+MAX_STRING = 256                    # any string carried into the output
+MAX_LABELS = 64                     # label pairs per server
 # The real file, not the path. People keep ~/.ssh/config as a symlink into a
 # dotfiles checkout, and an atomic replace of the path would swap the link for
 # a plain file and leave the checkout untouched.
@@ -107,10 +126,32 @@ def fail(message, code=2):
 
 
 def secret_tool():
-    path = shutil.which("secret-tool")
-    if path is None:
-        raise RuntimeError("secret-tool not found — install libsecret")
-    return path
+    if not os.path.isfile(SECRET_TOOL) or not os.access(SECRET_TOOL, os.X_OK):
+        raise RuntimeError("%s not found — install libsecret" % SECRET_TOOL)
+    return SECRET_TOOL
+
+
+def read_capped(stream, limit, what):
+    """Read at most `limit` bytes; refuse rather than truncate anything longer."""
+    data = stream.read(limit + 1)
+    if data is None:
+        return b""
+    if len(data) > limit:
+        raise ValueError("%s exceeds %d bytes" % (what, limit))
+    return data
+
+
+def read_file_capped(path, limit, what):
+    with open(path, "rb") as handle:
+        return read_capped(handle, limit, what).decode("utf-8")
+
+
+def clip(value, limit=MAX_STRING):
+    """A string from outside, cut to a length the panel can lay out."""
+    if value is None:
+        return None
+    text = str(value)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def check_label(label):
@@ -200,7 +241,8 @@ def get_json(url, token, timeout=TIMEOUT, attempts=ATTEMPTS):
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+                body = read_capped(response, MAX_BODY, "API response")
+                return json.loads(body.decode("utf-8"))
         except Exception as error:  # noqa: BLE001 - only a timeout earns a retry
             if is_timeout(error) and attempt + 1 < attempts:
                 continue
@@ -228,13 +270,25 @@ def in_parallel(jobs):
 
 
 def fetch_all(url, token, key, timeout=TIMEOUT, attempts=ATTEMPTS):
-    """Walk `meta.pagination.next_page` until Hetzner stops handing out pages."""
+    """Walk `meta.pagination.next_page` until Hetzner stops handing out pages,
+    within a ceiling on pages, records and bytes."""
     items = []
+    total_bytes = 0
     page = 1
     for _ in range(MAX_PAGES):
         body = get_json("%s?per_page=%d&page=%d" % (url, PER_PAGE, page), token,
                         timeout=timeout, attempts=attempts)
-        items.extend(body.get(key) or [])
+        if not isinstance(body, dict):
+            raise ValueError("API response is not an object")
+        chunk = body.get(key) or []
+        if not isinstance(chunk, list):
+            raise ValueError("API response field %r is not a list" % key)
+        total_bytes += len(json.dumps(chunk))
+        if total_bytes > MAX_LIST_BYTES:
+            raise ValueError("%s list exceeds %d bytes" % (key, MAX_LIST_BYTES))
+        items.extend(chunk)
+        if len(items) > MAX_ITEMS:
+            raise ValueError("more than %d %s in one project" % (MAX_ITEMS, key))
         pagination = (body.get("meta") or {}).get("pagination") or {}
         next_page = pagination.get("next_page")
         if not isinstance(next_page, int) or next_page <= page:
@@ -243,29 +297,156 @@ def fetch_all(url, token, key, timeout=TIMEOUT, attempts=ATTEMPTS):
     return items
 
 
+def as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def as_list(value):
+    return value if isinstance(value, list) else []
+
+
+def number(value):
+    """An int or float from outside, or None; never a string or a NaN."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    return None
+
+
+def project_server(raw):
+    """The fields the panel reads, and nothing else, each cut to size.
+
+    What goes back to the shell is a fixed shape of bounded strings and
+    numbers. A field the API grows tomorrow, or a hostile one, never reaches
+    the QML side.
+    """
+    server = as_dict(raw)
+    public_net = as_dict(server.get("public_net"))
+    ipv4 = as_dict(public_net.get("ipv4"))
+    ipv6 = as_dict(public_net.get("ipv6"))
+    server_type = as_dict(server.get("server_type"))
+    datacenter = as_dict(server.get("datacenter"))
+    location = as_dict(datacenter.get("location"))
+    image = as_dict(server.get("image"))
+    iso = as_dict(server.get("iso"))
+    placement = as_dict(server.get("placement_group"))
+    protection = as_dict(server.get("protection"))
+    labels = {}
+    for key, value in list(as_dict(server.get("labels")).items())[:MAX_LABELS]:
+        labels[clip(key, 64)] = clip(value)
+    return {
+        "id": number(server.get("id")),
+        "name": clip(server.get("name")),
+        "status": clip(server.get("status"), 32),
+        "created": clip(server.get("created"), 40),
+        "locked": server.get("locked") is True,
+        "backup_window": clip(server.get("backup_window"), 16),
+        "outgoing_traffic": number(server.get("outgoing_traffic")),
+        "ingoing_traffic": number(server.get("ingoing_traffic")),
+        "included_traffic": number(server.get("included_traffic")),
+        "rescue_enabled": server.get("rescue_enabled") is True,
+        "public_net": {
+            "ipv4": {"ip": clip(ipv4.get("ip"), 64), "dns_ptr": clip(ipv4.get("dns_ptr"))},
+            "ipv6": {"ip": clip(ipv6.get("ip"), 64)},
+            "firewalls": [{"status": clip(as_dict(f).get("status"), 32)}
+                          for f in as_list(public_net.get("firewalls"))[:MAX_LABELS]],
+        },
+        "private_net": [{"ip": clip(as_dict(n).get("ip"), 64)}
+                        for n in as_list(server.get("private_net"))[:MAX_LABELS]],
+        "server_type": {
+            "name": clip(server_type.get("name"), 32),
+            "cores": number(server_type.get("cores")),
+            "memory": number(server_type.get("memory")),
+            "disk": number(server_type.get("disk")),
+        },
+        "datacenter": {
+            "name": clip(datacenter.get("name"), 64),
+            "location": {"city": clip(location.get("city"), 64),
+                         "country": clip(location.get("country"), 8)},
+        },
+        "image": {
+            "name": clip(image.get("name")),
+            "description": clip(image.get("description")),
+            "os_flavor": clip(image.get("os_flavor"), 32),
+            "os_version": clip(image.get("os_version"), 32),
+        },
+        "iso": {"name": clip(iso.get("name")), "description": clip(iso.get("description"))} if iso else None,
+        "placement_group": {"name": clip(placement.get("name"))} if placement else None,
+        "protection": {"delete": protection.get("delete") is True,
+                       "rebuild": protection.get("rebuild") is True},
+        "labels": labels,
+    }
+
+
+def project_volume(raw):
+    volume = as_dict(raw)
+    return {
+        "id": number(volume.get("id")),
+        "server": number(volume.get("server")),
+        "name": clip(volume.get("name")),
+        "size": number(volume.get("size")),
+        "linux_device": clip(volume.get("linux_device")),
+        "format": clip(volume.get("format"), 32),
+        "status": clip(volume.get("status"), 32),
+    }
+
+
+def project_box(raw):
+    box = as_dict(raw)
+    box_type = as_dict(box.get("storage_box_type"))
+    location = as_dict(box.get("location"))
+    stats = as_dict(box.get("stats"))
+    access = as_dict(box.get("access_settings"))
+    protection = as_dict(box.get("protection"))
+    return {
+        "id": number(box.get("id")),
+        "username": clip(box.get("username"), 64),
+        "status": clip(box.get("status"), 32),
+        "name": clip(box.get("name")),
+        "server": clip(box.get("server")),
+        "system": clip(box.get("system"), 64),
+        "created": clip(box.get("created"), 40),
+        "snapshot_plan": bool(box.get("snapshot_plan")),
+        "storage_box_type": {
+            "name": clip(box_type.get("name"), 32),
+            "description": clip(box_type.get("description"), 64),
+            "size": number(box_type.get("size")),
+            "snapshot_limit": number(box_type.get("snapshot_limit")),
+        },
+        "location": {"name": clip(location.get("name"), 32), "city": clip(location.get("city"), 64),
+                     "country": clip(location.get("country"), 8)},
+        "stats": {"size": number(stats.get("size")), "size_data": number(stats.get("size_data")),
+                  "size_snapshots": number(stats.get("size_snapshots"))},
+        "access_settings": {name: access.get(name) is True for name in (
+            "ssh_enabled", "samba_enabled", "webdav_enabled", "zfs_enabled", "reachable_externally")},
+        "protection": {"delete": protection.get("delete") is True},
+    }
+
+
 def attach_volumes(servers, volumes):
-    """Hang each volume off the server it is mounted on.
+    """Project every record to the panel's shape and hang each volume off the
+    server it is mounted on.
 
     The server object only carries volume ids, and the sizes and device paths
     are what anyone actually wants to see, so they are joined here rather than
     leaving the panel to do it.
     """
     by_server = {}
-    for volume in volumes:
-        owner = volume.get("server")
+    for raw in volumes:
+        volume = project_volume(raw)
+        owner = volume.pop("server")
         if owner is None:
             continue
-        by_server.setdefault(owner, []).append({
-            "id": volume.get("id"),
-            "name": volume.get("name"),
-            "size": volume.get("size"),
-            "linux_device": volume.get("linux_device"),
-            "format": volume.get("format"),
-            "status": volume.get("status"),
-        })
-    for server in servers:
-        server["attached_volumes"] = by_server.get(server.get("id"), [])
-    return servers
+        by_server.setdefault(owner, []).append(volume)
+    result = []
+    for raw in servers:
+        server = project_server(raw)
+        server["attached_volumes"] = by_server.get(server["id"], [])
+        result.append(server)
+    return result
 
 
 def api_error(error):
@@ -276,8 +457,8 @@ def api_error(error):
         status = error.code
         detail = ""
         try:
-            body = json.loads(error.read().decode("utf-8"))
-            detail = ((body.get("error") or {}).get("message")) or ""
+            body = json.loads(read_capped(error, MAX_ERROR_BODY, "API error body").decode("utf-8"))
+            detail = clip((as_dict(as_dict(body).get("error")).get("message")) or "")
         except Exception:
             detail = ""
         if status == 401:
@@ -333,7 +514,7 @@ def project_entry(label):
             "status": 200,
             "error": "",
             "servers": attach_volumes(servers, volumes),
-            "storage_boxes": boxes or [],
+            "storage_boxes": [project_box(box) for box in (boxes or [])],
             "storage_boxes_error": api_error(boxes_error)[1] if boxes_error is not None else "",
             "timings_ms": timings,
         }
@@ -353,8 +534,7 @@ def project_entry(label):
 # -------------------------------------------------------------------- demo
 
 def demo_fleet():
-    with open(DEMO_FILE, "r", encoding="utf-8") as handle:
-        return json.load(handle).get("projects") or {}
+    return as_dict(as_dict(json.loads(read_file_capped(DEMO_FILE, MAX_DEMO_FILE, "demo file"))).get("projects"))
 
 
 def demo_project(label):
@@ -365,8 +545,8 @@ def demo_project(label):
     servers = json.loads(json.dumps(project.get("servers") or []))
     return {
         "label": label, "ok": True, "status": 200, "error": "",
-        "servers": attach_volumes(servers, project.get("volumes") or []),
-        "storage_boxes": project.get("storage_boxes") or [],
+        "servers": attach_volumes(servers, as_list(project.get("volumes"))),
+        "storage_boxes": [project_box(box) for box in as_list(project.get("storage_boxes"))],
         "storage_boxes_error": "",
         "timings_ms": {"servers": 0, "volumes": 0, "storage_boxes": 0},
     }
@@ -404,9 +584,9 @@ def command_servers(labels):
 def command_store(label):
     if DEMO:
         return fail("Demo data is on — nothing is stored")
-    token = sys.stdin.readline().strip()
-    if not token:
-        return fail("No token on stdin")
+    token = read_capped(sys.stdin.buffer, MAX_TOKEN, "token").decode("utf-8", "replace").strip()
+    if not token or any(ch.isspace() for ch in token):
+        return fail("No token on stdin" if not token else "A token has no whitespace in it")
     store_token(label, token)
     return emit({"ok": True, "label": label})
 
@@ -524,18 +704,21 @@ def command_metrics(label, server_id, window):
         if error is not None:
             failures.append(api_error(error)[1])
             continue
-        for name, entry in series_of.items():
-            values = entry.get("values") or []
+        for name, entry in list(as_dict(series_of).items())[:16]:
+            values = as_list(as_dict(entry).get("values"))[:MAX_SAMPLES]
             if not values:
                 continue
             numbers = []
             for sample in values:
                 try:
-                    numbers.append(float(sample[1]))
+                    value = float(sample[1])
                 except (TypeError, ValueError, IndexError):
                     continue
+                if math.isfinite(value):
+                    numbers.append(value)
             if not numbers:
                 continue
+            name = clip(name, 64)
             latest[name] = numbers[-1]
             # Only the cpu curve is drawn, so only it is worth carrying back.
             if name == "cpu":
@@ -565,7 +748,7 @@ def command_storage_boxes(label):
     if token is None:
         return emit({"ok": False, "error": "No token in the keyring for \"%s\"" % label})
     try:
-        return emit({"ok": True, "boxes": fetch_storage_boxes(token)})
+        return emit({"ok": True, "boxes": [project_box(box) for box in fetch_storage_boxes(token)]})
     except Exception as error:  # noqa: BLE001
         status, message = api_error(error)
         return emit({"ok": False, "status": status, "error": message})
@@ -587,8 +770,9 @@ def read_sync_job():
     Refusing the whole job is deliberate: silently dropping one bad host would
     delete it from the config, which is the failure the sync is built to avoid.
     """
+    raw = read_capped(sys.stdin.buffer, MAX_STDIN, "sync job").decode("utf-8", "replace")
     try:
-        job = json.loads(sys.stdin.readline() or "{}")
+        job = json.loads(raw or "{}")
     except ValueError:
         raise ValueError("sync-ssh expects a JSON object on stdin")
     if not isinstance(job, dict):
@@ -628,8 +812,7 @@ def command_sync_ssh():
 
     existing = ""
     if os.path.exists(SSH_CONFIG):
-        with open(SSH_CONFIG, "r") as handle:
-            existing = handle.read()
+        existing = read_file_capped(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG)
 
     # A start marker with no end marker means someone edited the block by hand
     # and left it open. Splicing into that would swallow the rest of the file,
@@ -665,21 +848,24 @@ def command_uninstall():
     tokens in the keyring and the block in ~/.ssh/config are the two things
     that would otherwise stay behind.
     """
-    labels = stored_labels()
-    for label in labels:
-        remove_token(label)
     removed_block = False
     if os.path.exists(SSH_CONFIG):
-        with open(SSH_CONFIG, "r") as handle:
-            existing = handle.read()
+        existing = read_file_capped(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG)
         if BLOCK_RE.search(existing):
             updated = BLOCK_RE.sub("", existing, count=1)
             updated = re.sub(r"\n{3,}", "\n\n", updated).lstrip("\n")
             write_private(SSH_BACKUP, existing)
             write_private(SSH_CONFIG, updated)
             removed_block = True
+    labels, warning = [], ""
+    try:
+        labels = stored_labels()
+        for label in labels:
+            remove_token(label)
+    except RuntimeError as error:
+        warning = str(error)
     return emit({"ok": True, "tokens_removed": labels, "ssh_block_removed": removed_block,
-                 "backup": SSH_BACKUP if removed_block else ""})
+                 "backup": SSH_BACKUP if removed_block else "", "warning": warning})
 
 
 def main(argv):

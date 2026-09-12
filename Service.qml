@@ -158,8 +158,24 @@ Item {
     delayedRefresh.restart()
   }
 
+  // The interpreter by its fixed path, in isolated mode: -I ignores PYTHON*
+  // variables and the user site directory and keeps the script's own
+  // directory off sys.path, so nothing writable can substitute a module.
+  readonly property string pythonPath: "/usr/bin/python3"
+
+  // The bridge holds tokens, so it runs in an environment of our making rather
+  // than the shell's: what secret-tool needs to reach the keyring over D-Bus,
+  // HOME for ~/.ssh/config, a locale, and a PATH of system directories only.
+  readonly property var bridgeEnvironment: ({
+    HOME: Quickshell.env("HOME"),
+    PATH: "/usr/bin:/bin",
+    LANG: Quickshell.env("LANG") || "C.UTF-8",
+    XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR"),
+    DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS")
+  })
+
   function bridgeArgs(command) {
-    var args = ["python3", bridgePath]
+    var args = [pythonPath, "-I", bridgePath]
     if (demo) args.push("--demo")
     args.push(command)
     return args
@@ -168,7 +184,9 @@ Item {
   function copyToClipboard(value) {
     var text = String(value || "")
     if (text === "") return
-    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
+    // A fixed path and no shell in between; `--` keeps a value that starts
+    // with a dash from being read as an option.
+    Quickshell.execDetached(["/usr/bin/wl-copy", "--", text])
     flash("Copied " + (text.length > 40 ? text.substring(0, 37) + "…" : text))
   }
 
@@ -435,6 +453,8 @@ Item {
 
   Process {
     id: serversProcess
+    clearEnvironment: true
+    environment: root.bridgeEnvironment
     running: false
     command: []
     stdout: StdioCollector { id: serversStdout; waitForEnd: true; onStreamFinished: root._serversOutput = text }
@@ -457,6 +477,8 @@ Item {
 
   Process {
     id: storeProcess
+    clearEnvironment: true
+    environment: root.bridgeEnvironment
     property string secret: ""
     running: false
     command: []
@@ -485,6 +507,8 @@ Item {
 
   Process {
     id: metricsProcess
+    clearEnvironment: true
+    environment: root.bridgeEnvironment
     running: false
     command: []
     stdout: StdioCollector { id: metricsStdout; waitForEnd: true }
@@ -500,6 +524,8 @@ Item {
 
   Process {
     id: syncProcess
+    clearEnvironment: true
+    environment: root.bridgeEnvironment
     property string job: ""
     running: false
     command: []
@@ -521,6 +547,8 @@ Item {
 
   Process {
     id: removeProcess
+    clearEnvironment: true
+    environment: root.bridgeEnvironment
     running: false
     command: []
     stdout: StdioCollector { id: removeStdout; waitForEnd: true }
