@@ -121,8 +121,44 @@ Item {
   signal tokenStored(string label, string key)
   signal tokenRemoved(string label)
 
-  property string _serversOutput: ""
-  property string _serversError: ""
+  // What the shell will hold of a bridge answer before it stops listening.
+  // The bridge caps its own output well below this; the ceiling is here so the
+  // shell does not depend on that being true.
+  readonly property int maxBridgeOutput: 32 * 1024 * 1024
+  readonly property int maxMetricsOutput: 8 * 1024 * 1024
+  readonly property int maxSmallOutput: 64 * 1024
+
+  // A stdout reader with a ceiling. The stock collector keeps everything it
+  // is handed; this one keeps up to `limit` characters and, past
+  // that, drops what it has and stops the process it belongs to, so a runaway
+  // producer cannot grow the shell. With an empty splitMarker the parser hands
+  // over each chunk as it arrives. The bridge emits ASCII-only JSON, so a
+  // chunk boundary never splits a character.
+  component BoundedCollector: SplitParser {
+    id: collector
+    property int limit: root.maxSmallOutput
+    property var process: null
+    property string text: ""
+    property bool overflowed: false
+
+    splitMarker: ""
+
+    function reset() {
+      text = ""
+      overflowed = false
+    }
+
+    onRead: function(data) {
+      if (collector.overflowed) return
+      if (collector.text.length + data.length > collector.limit) {
+        collector.overflowed = true
+        collector.text = ""
+        if (collector.process && collector.process.running) collector.process.running = false
+        return
+      }
+      collector.text += data
+    }
+  }
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
@@ -225,8 +261,8 @@ Item {
       if (!loaded && typeof primaryOutput === "function") applyShared(primaryOutput())
       return
     }
-    _serversOutput = ""
-    _serversError = ""
+    serversStdout.reset()
+    serversStderr.reset()
     _timedOut = false
     refreshing = true
     serversProcess.command = bridgeArgs("servers").concat(keys)
@@ -248,6 +284,7 @@ Item {
       return
     }
     if (metricsProcess.running) return
+    metricsStdout.reset()
     metricsProcess.command = bridgeArgs("metrics").concat([metricsLabel, metricsServerId, String(metricsWindow)])
     metricsProcess.running = true
     if (metricsTimer.running) metricsTimer.restart()
@@ -322,6 +359,8 @@ Item {
       key: sshKey,
       hosts: Model.sshHosts(projects)
     }
+    syncStdout.reset()
+    syncStderr.reset()
     syncProcess.job = JSON.stringify(job)
     syncProcess.command = bridgeArgs("sync-ssh")
     syncProcess.running = true
@@ -357,6 +396,8 @@ Item {
     if (key === "") { flash("Could not find a free slot for that label"); return false }
     pendingLabel = name
     pendingKey = key
+    storeStdout.reset()
+    storeStderr.reset()
     storeProcess.secret = secret
     storeProcess.command = bridgeArgs("store").concat([key])
     storeProcess.running = true
@@ -389,6 +430,8 @@ Item {
     }
     var next = pendingRemovals[0]
     pendingRemovals = pendingRemovals.slice(1)
+    removeStdout.reset()
+    removeStderr.reset()
     removeProcess.command = bridgeArgs("remove").concat([next])
     removeProcess.running = true
   }
@@ -457,20 +500,24 @@ Item {
     environment: root.bridgeEnvironment
     running: false
     command: []
-    stdout: StdioCollector { id: serversStdout; waitForEnd: true; onStreamFinished: root._serversOutput = text }
-    stderr: StdioCollector { id: serversStderr; waitForEnd: true; onStreamFinished: root._serversError = text }
+    stdout: BoundedCollector { id: serversStdout; process: serversProcess; limit: root.maxBridgeOutput }
+    stderr: BoundedCollector { id: serversStderr; process: serversProcess }
     onExited: function(exitCode) {
       pollWatchdog.stop()
       root.refreshing = false
-      var stdout = String(serversStdout.text || root._serversOutput || "")
-      var stderr = String(serversStderr.text || root._serversError || "")
-      if (exitCode === 0) root.applyServers(stdout)
+      var stdout = serversStdout.text
+      var stderr = serversStderr.text
+      if (exitCode === 0 && !serversStdout.overflowed) root.applyServers(stdout)
       else {
         root._announce = false
         root.loaded = true
-        root.lastError = root._timedOut
-          ? "The Hetzner bridge did not answer within " + Math.round(root.watchdogMs / 1000) + " s"
-          : root.elide(root.bridgeMessage(stdout, stderr || "The Hetzner bridge failed to run"))
+        if (serversStdout.overflowed) {
+          root.lastError = "The Hetzner bridge answer exceeded " + Math.round(root.maxBridgeOutput / 1048576) + " MB and was stopped"
+        } else if (root._timedOut) {
+          root.lastError = "The Hetzner bridge did not answer within " + Math.round(root.watchdogMs / 1000) + " s"
+        } else {
+          root.lastError = root.elide(root.bridgeMessage(stdout, stderr || "The Hetzner bridge failed to run"))
+        }
       }
     }
   }
@@ -487,19 +534,19 @@ Item {
       write(secret + "\n")
       secret = ""
     }
-    stdout: StdioCollector { id: storeStdout; waitForEnd: true }
-    stderr: StdioCollector { id: storeStderr; waitForEnd: true }
+    stdout: BoundedCollector { id: storeStdout; process: storeProcess }
+    stderr: BoundedCollector { id: storeStderr; process: storeProcess }
     onExited: function(exitCode) {
       var label = root.pendingLabel
       root.pendingLabel = ""
-      if (exitCode === 0) {
+      if (exitCode === 0 && !storeStdout.overflowed) {
         root.flash("Saved token for " + label)
         root.tokenStored(label, root.pendingKey)
         root.pendingKey = ""
         delayedRefresh.restart()
       } else {
-        root.lastError = root.elide(root.bridgeMessage(String(storeStdout.text || ""),
-          String(storeStderr.text || "") || "Could not save the token to the keyring"))
+        root.lastError = root.elide(root.bridgeMessage(storeStdout.text,
+          storeStderr.text || "Could not save the token to the keyring"))
         root.flash(root.lastError)
       }
     }
@@ -511,9 +558,9 @@ Item {
     environment: root.bridgeEnvironment
     running: false
     command: []
-    stdout: StdioCollector { id: metricsStdout; waitForEnd: true }
+    stdout: BoundedCollector { id: metricsStdout; process: metricsProcess; limit: root.maxMetricsOutput }
     onExited: function(exitCode) {
-      var parsed = Model.parseMetrics(exitCode === 0 ? String(metricsStdout.text || "") : "")
+      var parsed = Model.parseMetrics(exitCode === 0 && !metricsStdout.overflowed ? metricsStdout.text : "")
       root.metrics = parsed.ok ? parsed.metrics : ({})
       root.metricsSeries = parsed.ok ? (parsed.series || []) : []
       // A type that failed on its own is a note, not a failure — the others
@@ -534,13 +581,13 @@ Item {
       write(job + "\n")
       job = ""
     }
-    stdout: StdioCollector { id: syncStdout; waitForEnd: true }
-    stderr: StdioCollector { id: syncStderr; waitForEnd: true }
+    stdout: BoundedCollector { id: syncStdout; process: syncProcess }
+    stderr: BoundedCollector { id: syncStderr; process: syncProcess }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.applySyncResult(String(syncStdout.text || ""))
+      if (exitCode === 0 && !syncStdout.overflowed) root.applySyncResult(syncStdout.text)
       else root.applySyncResult(JSON.stringify({
         ok: false,
-        error: String(syncStderr.text || "") || "The SSH config sync failed to run"
+        error: syncStderr.text || "The SSH config sync failed to run"
       }))
     }
   }
@@ -551,14 +598,14 @@ Item {
     environment: root.bridgeEnvironment
     running: false
     command: []
-    stdout: StdioCollector { id: removeStdout; waitForEnd: true }
-    stderr: StdioCollector { id: removeStderr; waitForEnd: true }
+    stdout: BoundedCollector { id: removeStdout; process: removeProcess }
+    stderr: BoundedCollector { id: removeStderr; process: removeProcess }
     onExited: function(exitCode) {
-      if (exitCode !== 0) {
+      if (exitCode !== 0 || removeStdout.overflowed) {
         root.pendingRemovals = []
         root.pendingLabel = ""
-        root.lastError = root.elide(root.bridgeMessage(String(removeStdout.text || ""),
-          String(removeStderr.text || "") || "Could not remove the token from the keyring"))
+        root.lastError = root.elide(root.bridgeMessage(removeStdout.text,
+          removeStderr.text || "Could not remove the token from the keyring"))
         root.flash(root.lastError)
         return
       }

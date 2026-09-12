@@ -360,6 +360,14 @@ assert(/def clip\(value, limit=MAX_STRING\)/.test(bridgeSource), 'and every stri
 const modelText = fs.readFileSync(path.join(root, 'Model.js'), 'utf8')
 assert(/MAX_BRIDGE_OUTPUT/.test(modelText) && /text\.length > MAX_BRIDGE_OUTPUT/.test(modelText), 'the shell refuses an oversized answer before parsing it')
 assertEqual(Model.parseBridge('x'.repeat(33 * 1024 * 1024)).ok, false, 'an oversized bridge answer is an error, not a parse')
+// The shell's own readers have a ceiling too: the stock collector keeps everything, so it is not used.
+assert(!/StdioCollector/.test(serviceSource), 'no unbounded collector is left in the service')
+assert(/component BoundedCollector: SplitParser \{[\s\S]*?splitMarker: ""[\s\S]*?if \(collector\.text\.length \+ data\.length > collector\.limit\) \{[\s\S]*?collector\.process\.running = false/.test(serviceSource),
+  'a bounded collector stops the process past its ceiling')
+assertEqual((serviceSource.match(/BoundedCollector \{ id: \w+; process: \w+Process/g) || []).length, 9,
+  'every stdout and stderr of every bridge process goes through a bounded collector')
+assert(/exitCode === 0 && !serversStdout\.overflowed/.test(serviceSource) && /answer exceeded/.test(serviceSource),
+  'an overflowed answer is reported, never parsed')
 assert(!/secret\s*\+/.test(serviceSource.replace(/write\(secret \+ "\\n"\)/, '')), 'the token is only ever written to stdin')
 assert(/bridgeArgs\("store"\)\.concat\(\[key\]\)/.test(serviceSource), 'only the keyring key travels on the bridge command line')
 assert(!/Bearer/.test(panelSource + serviceSource), 'no Authorization header is built in QML')
