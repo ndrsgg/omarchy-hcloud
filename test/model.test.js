@@ -354,6 +354,22 @@ assert(/def read_line_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.readlin
 assert(/read_line_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_line_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
   'stdin is capped for the token and the sync job')
 assert(!/read_capped\(sys\.stdin/.test(bridgeSource), 'and never read to EOF')
+// Neither wait may be endless. A shell whose event loop has stopped never
+// writes the line it owes, and a bridge that waits it out holds the panel's
+// one store slot with it — which is how a single stuck process came to
+// swallow every save that followed. A QML-side timer cannot cover that: it
+// would be stopped too. So the bridge carries its own end on both waits.
+assert(/^STDIN_TIMEOUT = 10\b/m.test(bridgeSource) && /^KEYRING_TIMEOUT = 20\b/m.test(bridgeSource),
+  'the two waits that had no end now have one')
+assert(/class deadline:[\s\S]*?signal\.signal\(signal\.SIGALRM[\s\S]*?signal\.alarm\(self\.seconds\)[\s\S]*?signal\.alarm\(0\)/.test(bridgeSource),
+  'and it interrupts a blocking read, which a timeout argument cannot')
+assertEqual((bridgeSource.match(/with deadline\(STDIN_TIMEOUT,/g) || []).length, 2,
+  'both lines from stdin, the token and the sync job, are read under it')
+assertEqual((bridgeSource.match(/secret_tool\(\),/g) || []).length,
+  (bridgeSource.match(/timeout=KEYRING_TIMEOUT,/g) || []).length,
+  'and every secret-tool call carries a ceiling on how long it may take')
+assert(/except subprocess\.TimeoutExpired:\s*\n\s*return fail\("The keyring did not answer within/.test(bridgeSource),
+  'a keyring that never answers is an answer, not a hang')
 assert((bridgeSource.match(/read_file_capped\(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG\)/g) || []).length === 2, 'the ssh config is read to a ceiling, in the sync and in the uninstall')
 assert(/read_file_capped\(DEMO_FILE, MAX_DEMO_FILE, "demo file"\)/.test(bridgeSource), 'and so is the demo file')
 assert(/\[:MAX_SAMPLES\]/.test(bridgeSource), 'a metrics series is capped in samples')
@@ -391,9 +407,19 @@ assert(!/secret\s*\+/.test(serviceSource.replace(/write\(secret \+ "\\n"\)/, '')
 assert(/write\(secret \+ "\\n"\)\s*\n\s*secret = ""[\s\S]*?stdinEnabled = false/.test(serviceSource)
   && /write\(job \+ "\\n"\)\s*\n\s*job = ""\s*\n\s*stdinEnabled = false/.test(serviceSource),
   'stdin is closed after the one line the store and the sync write')
-assert(/storeProcess\.stdinEnabled = true\s*\n\s*storeProcess\.running = true/.test(serviceSource)
+assert(/storeProcess\.stdinEnabled = true\n[\s\S]{0,120}?storeProcess\.running = true/.test(serviceSource)
   && /syncProcess\.stdinEnabled = true\s*\n\s*syncProcess\.running = true/.test(serviceSource),
   'and opened again before each launch')
+// Nothing the panel can press may end in silence. A store that is still going
+// says so; one that timed out or never started is reported the same way an
+// exit would have been, since Quickshell reports a failed start as a change of
+// `running` and nothing else.
+assert(/if \(storeProcess\.running\) \{ flash\(/.test(serviceSource), 'a store already under way answers rather than swallowing the press')
+assert(/id: storeWatchdog[\s\S]*?interval: root\.keyringWatchdogMs[\s\S]*?root\._storeTimedOut = true\s*\n\s*storeProcess\.running = false/.test(serviceSource)
+  && /storeWatchdog\.restart\(\)/.test(serviceSource) && /storeWatchdog\.stop\(\)/.test(serviceSource),
+  'a store that hangs in the keyring is reaped and reported')
+assert(/onRunningChanged: \{\s*\n\s*if \(running \|\| !root\._storePending\) return[\s\S]*?never ran/.test(serviceSource),
+  'and a bridge that never started is reported too')
 assert(/bridgeArgs\("store"\)\.concat\(\[key\]\)/.test(serviceSource), 'only the keyring key travels on the bridge command line')
 assert(!/Bearer/.test(panelSource + serviceSource), 'no Authorization header is built in QML')
 assert(/per_page=%d&page=%d/.test(bridgeSource), 'the bridge paginates explicitly')

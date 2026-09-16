@@ -67,6 +67,18 @@ Item {
   // slow answer or two; past that the network is gone and the panel would
   // rather say so than keep a spinner.
   readonly property int watchdogMs: 60000
+  // secret-tool reaches the keyring over D-Bus, and a locked or missing secret
+  // service leaves it waiting rather than failing. A wait that long is a
+  // failure in every way that matters here, so it is reaped and reported —
+  // left alone, storeProcess stays running and the guard in addToken drops
+  // every later save on the floor without a word.
+  readonly property int keyringWatchdogMs: 20000
+  property bool _storeTimedOut: false
+  // A process that never starts — a missing interpreter, say — is reported by
+  // Quickshell as a change of `running` and nothing else; the `exited` every
+  // error path here hangs off never comes. Held from the launch to whichever
+  // of the two arrives first.
+  property bool _storePending: false
   // When the list on screen was fetched. Stays put through a failed refresh,
   // which is exactly when someone wants to know how old the data is.
   property string lastUpdated: ""
@@ -387,7 +399,9 @@ Item {
   function addToken(label, token) {
     var name = String(label || "").trim()
     var secret = String(token || "")
-    if (storeProcess.running) return false
+    // The one guard that used to say nothing. A store that is still on its way
+    // — or stuck — would swallow every press in silence.
+    if (storeProcess.running) { flash("Still saving the last token"); return false }
     if (demo) { flash("Demo data is on — turn it off to add a token"); return false }
     if (name === "") { flash("Give the project a label"); return false }
     // The label travels to secret-tool as a positional argument.
@@ -404,7 +418,10 @@ Item {
     // Closed after the write on the last run; a closed stdin at launch stays
     // closed, so it is opened again before every start.
     storeProcess.stdinEnabled = true
+    _storeTimedOut = false
+    _storePending = true
     storeProcess.running = true
+    storeWatchdog.restart()
     return true
   }
 
@@ -492,6 +509,20 @@ Item {
   }
 
   Timer {
+    // The keyring's own ceiling. A store that is still going at this point is
+    // not coming back on its own, and a reaped process exits, which is the one
+    // path that puts the failure on screen.
+    id: storeWatchdog
+    interval: root.keyringWatchdogMs
+    repeat: false
+    onTriggered: {
+      if (!storeProcess.running) return
+      root._storeTimedOut = true
+      storeProcess.running = false
+    }
+  }
+
+  Timer {
     id: actionStatusTimer
     interval: 2600
     repeat: false
@@ -546,6 +577,8 @@ Item {
     stdout: BoundedCollector { id: storeStdout; process: storeProcess }
     stderr: BoundedCollector { id: storeStderr; process: storeProcess }
     onExited: function(exitCode) {
+      storeWatchdog.stop()
+      root._storePending = false
       var label = root.pendingLabel
       root.pendingLabel = ""
       if (exitCode === 0 && !storeStdout.overflowed) {
@@ -554,10 +587,25 @@ Item {
         root.pendingKey = ""
         delayedRefresh.restart()
       } else {
-        root.lastError = root.elide(root.bridgeMessage(storeStdout.text,
-          storeStderr.text || "Could not save the token to the keyring"))
+        root.pendingKey = ""
+        root.lastError = root._storeTimedOut
+          ? "The keyring did not answer within " + Math.round(root.keyringWatchdogMs / 1000) + " s — is it unlocked?"
+          : root.elide(root.bridgeMessage(storeStdout.text,
+            storeStderr.text || "Could not save the token to the keyring"))
         root.flash(root.lastError)
       }
+    }
+    // A process that could not be started is a change of `running` and nothing
+    // else — no exit, no output, no error. Saying so beats a form that takes
+    // every press and never answers.
+    onRunningChanged: {
+      if (running || !root._storePending) return
+      root._storePending = false
+      storeWatchdog.stop()
+      root.pendingLabel = ""
+      root.pendingKey = ""
+      root.lastError = "Could not start " + root.pythonPath + " — the Hetzner bridge never ran"
+      root.flash(root.lastError)
     }
   }
 

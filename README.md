@@ -256,6 +256,19 @@ the two it is about to do before you save. Removing a label removes every
 token under it. Use one label per project if you would rather keep them apart.
 Labels live in `shell.json`; the tokens live in the login keyring, one per key.
 
+Saving a token always answers. Both waits that used to have no end now have
+one, in the bridge itself: the line the shell owes it is waited for ten
+seconds, and every `secret-tool` call twenty — the keyring is reached over
+D-Bus, where a locked or absent secret service leaves it waiting rather than
+failing. The ceiling lives in the bridge and not only in the shell because a
+shell whose event loop has stopped writes no line and runs no timer either,
+and a bridge that waits that out holds the panel's one store slot with it,
+which is enough to swallow every save that follows in silence. The panel adds
+its own 20 s watchdog, reports a bridge that could not be started at all —
+Quickshell says so only by the process going from running to not, without an
+exit — and says when a save is still on its way rather than taking the press
+and going quiet.
+
 <p align="center">
   <img src="demo/screenshots/settings.png" width="420" alt="The settings view: two project tokens with their server counts and ssh prefixes, the ~/.ssh/config sync toggle, and the refresh interval as four buttons.">
 </p>

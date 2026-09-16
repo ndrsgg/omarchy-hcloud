@@ -139,6 +139,16 @@ check "one byte past it is refused" "$(contains "$out" 'exceeds')"
 out=$( ( echo "tok en"; sleep 3 ) | timeout 2 env HOME="$H" "$BRIDGE" store openpipe-probe; echo "rc=$?" )
 check "a token answers while stdin stays open, refused before any keyring access" "$(contains "$out" 'no whitespace')"
 
+# --- a line that never comes -------------------------------------------------
+# The other half of the same story. The shell writes its one line the moment
+# the process starts, so a wait past ten seconds is a shell that never wrote.
+# Waiting it out held the panel's one store slot for good and every save after
+# it was dropped in silence, so the wait ends and says why. The slow case in
+# this suite, and the ten seconds are the point of it.
+out=$( ( sleep 12 ) | timeout 14 env HOME="$H" "$BRIDGE" store never-written; echo "rc=$?" )
+check "a token that never arrives is refused rather than waited out" "$(contains "$out" 'did not arrive within 10 s')"
+check "and the bridge says so itself rather than being killed" "$(contains "$out" 'rc=2')"
+
 # --- argv validation happens before any keyring access -----------------------
 out=$("$BRIDGE" metrics prod ../etc 2>&1)
 check "a non-numeric server id never reaches a URL" "$(contains "$out" 'numeric server id')"
