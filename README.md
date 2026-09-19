@@ -204,7 +204,7 @@ says when the list on screen was fetched.
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows | move the cursor — through a project's servers, then its storage boxes, then the next project |
-| `enter` / `space` | open the copy menu for the selected row |
+| `enter` / `space` | open the copy menu for the selected row; in settings, the add-token button opens the form |
 | `d`, `→` | open that row's page |
 | `←` | back to the list |
 | `c` | copy IPv4, or a box's host |

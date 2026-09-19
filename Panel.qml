@@ -127,8 +127,13 @@ Panel {
     return visibleRows[Math.max(0, Math.min(serverIndex, visibleRows.length - 1))]
   }
 
+  // The add row sits one past the last token, so "is a token selected" is a
+  // question with a no — and every caller that acts on a label has to ask it.
+  readonly property int tokenSlots: labels.length + (addTokenOpen ? 0 : 1)
+  readonly property bool addRowSelected: focusSection === "tokens" && tokenIndex >= labels.length
+
   function selectedLabel() {
-    if (labels.length === 0) return ""
+    if (labels.length === 0 || addRowSelected) return ""
     return String(labels[Math.max(0, Math.min(tokenIndex, labels.length - 1))])
   }
 
@@ -153,7 +158,7 @@ Panel {
 
   function ensureCursor() {
     if (serverIndex >= visibleRows.length) serverIndex = Math.max(0, visibleRows.length - 1)
-    if (tokenIndex >= labels.length) tokenIndex = Math.max(0, labels.length - 1)
+    if (tokenIndex >= tokenSlots) tokenIndex = Math.max(0, tokenSlots - 1)
     // A section that belongs to the other view is never the cursor's home.
     if (view !== "settings" && focusSection === "tokens") focusSection = "header"
     if (view !== "servers" && focusSection === "servers") focusSection = "header"
@@ -185,7 +190,7 @@ Panel {
       if (dy < 0) {
         if (tokenIndex > 0) tokenIndex--
         else focusSection = "header"
-      } else if (tokenIndex < labels.length - 1) {
+      } else if (tokenIndex < tokenSlots - 1) {
         tokenIndex++
         }
     }
@@ -196,7 +201,7 @@ Panel {
     ensureCursor()
     if (focusSection === "header") hcloud.refreshManually()
     else if (focusSection === "servers") openSelectedCopyMenu()
-    else if (focusSection === "tokens") toggleView()
+    else if (focusSection === "tokens") { if (addRowSelected) beginAddToken(""); else toggleView() }
   }
 
   // A page rather than an expander. Nothing in the list moves, there is room
@@ -507,7 +512,7 @@ Panel {
         else if (root.view === "settings" && root.hasLabels) root.toggleView()
         else root.close()
       }
-      onDeleteRequested: if (root.focusSection === "tokens") hcloud.removeToken(root.selectedLabel())
+      onDeleteRequested: if (root.focusSection === "tokens" && !root.addRowSelected) hcloud.removeToken(root.selectedLabel())
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
         var key = String(t).toLowerCase()
@@ -1101,35 +1106,25 @@ Panel {
                   }
                 }
 
-                CursorSurface {
+                // A button rather than a full-width row: it is as wide as its
+                // label, so it reads as something to press instead of as one
+                // more token in the list above it.
+                Button {
                   id: addRow
                   visible: !root.addTokenOpen
-                  width: parent.width
+                  text: "Add a project token"
+                  bordered: true
                   foreground: root.foreground
-                  fill: root.hoverFill
-                  implicitHeight: addRowText.implicitHeight + Style.spacing.xl
-
-                  MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.beginAddToken("")
-                  }
-
-                  Text {
-                    id: addRowText
-                    textFormat: Text.PlainText
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Style.space(10)
-                    anchors.rightMargin: Style.space(10)
-                    text: "+  Add a project token"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    elide: Text.ElideRight
-                  }
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.body
+                  // One past the last token: the button is the cursor's next
+                  // stop, so it lights up under the keyboard exactly as under
+                  // the mouse, and only one thing on screen is ever lit.
+                  hasCursor: root.cursorActive && root.focusSection === "tokens"
+                    && root.tokenIndex === root.labels.length
+                  onHasCursorChanged: if (hasCursor) root.scrollItemIntoView(addRow)
+                  onHovered: function(on) { if (on) root.setTokenCursor(root.labels.length) }
+                  onClicked: root.beginAddToken("")
                 }
 
                 // A card rather than four loose controls, so it reads as one thing being
