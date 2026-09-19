@@ -544,6 +544,10 @@ Panel {
             readonly property bool settingsActive: root.view === "settings"
             readonly property bool inDetail: root.view === "detail"
             readonly property bool canLeaveSettings: root.hasLabels
+            // The one button on the right leaves whatever view is open, so it
+            // has to say so: a chevron wherever there is somewhere to go back
+            // to, and the gear only where it still opens something.
+            readonly property bool goesBack: inDetail || (settingsActive && canLeaveSettings)
             readonly property bool refreshing: hcloud.refreshing
             readonly property string updatedAt: hcloud.lastUpdated
             function focusHeader() { root.setHeaderCursor() }
@@ -582,7 +586,7 @@ Panel {
                     PanelActionButton {
                       id: refreshButton
                       visible: !header.refreshing
-                      iconText: "\udb81\udc50"
+                      iconText: "󰑐"
                       tooltipText: header.updatedAt === "" ? "Refresh now" : "Refresh now · data from " + header.updatedAt
                       foreground: header.fg
                       fontFamily: header.family
@@ -595,7 +599,7 @@ Panel {
                       textFormat: Text.PlainText
                       visible: header.refreshing
                       anchors.centerIn: parent
-                      text: "\udb81\udc50"
+                      text: "󰑐"
                       color: header.fg
                       font.family: header.family
                       font.pixelSize: refreshButton.fontSize
@@ -612,7 +616,7 @@ Panel {
                   }
 
                   PanelActionButton {
-                    iconText: header.inDetail ? "󰅁" : "󰒓"
+                    iconText: header.goesBack ? "󰅁" : "󰒓"
                     tooltipText: header.inDetail
                       ? "Back to the list"
                       : (header.settingsActive
@@ -620,7 +624,7 @@ Panel {
                       : "Tokens and SSH sync")
                     foreground: header.fg
                     fontFamily: header.family
-                    bordered: header.settingsActive
+                    bordered: header.settingsActive && !header.goesBack
                     onClicked: header.toggleSettings()
                   }
                 }
@@ -2039,7 +2043,7 @@ Panel {
         }
 
         PanelActionButton {
-          iconText: "+"
+          iconText: "󰐗"
           tooltipText: "Add another project token under " + tokenRow.label
           foreground: root.foreground
           fontFamily: root.fontFamily

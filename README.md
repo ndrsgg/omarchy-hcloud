@@ -181,7 +181,7 @@ capitals, and that is the only reason the label is touched.
 Left-click the Hetzner mark for the panel, right-click to refresh now. The
 panel has three views: the server list, a page per row, and the settings
 behind the gear — tokens, SSH sync and refresh interval — so the list stays a
-list.
+list. Once you are in, the gear becomes a chevron that leads back.
 
 Each row leads with its state disc, then the name with address, type and
 location under it, the distribution mark at the trailing edge, and a copy
