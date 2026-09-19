@@ -347,8 +347,21 @@ assert(/def read_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.read\(limit 
 assert(/read_capped\(response, MAX_BODY, "API response"\)/.test(bridgeSource), 'an HTTP body is capped')
 assert(/read_capped\(error, MAX_ERROR_BODY, "API error body"\)/.test(bridgeSource), 'and so is an HTTP error body')
 assert(/if total_bytes > MAX_LIST_BYTES:/.test(bridgeSource) && /if len\(items\) > MAX_ITEMS:/.test(bridgeSource), 'a paginated list is capped in bytes and records')
-assert(/read_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
+assert(/def read_line_capped\(stream, limit, what\):\s*\n[\s\S]*?stream\.readline\(limit \+ 1\)[\s\S]*?if len\(data\) > limit:\s*\n\s*raise ValueError/.test(bridgeSource),
+  'a line is read to the same ceiling')
+assert(/read_line_capped\(sys\.stdin\.buffer, MAX_TOKEN, "token"\)/.test(bridgeSource) && /read_line_capped\(sys\.stdin\.buffer, MAX_STDIN, "sync job"\)/.test(bridgeSource),
   'stdin is capped for the token and the sync job')
+// Read by the line, never to end-of-stream: the shell keeps stdin open for the
+// life of the panel, so a read that waited for EOF would never return.
+assert(!/read_capped\(sys\.stdin/.test(bridgeSource), 'and read by the line, never waiting on end-of-stream')
+assert(!/\.readline\(\)/.test(bridgeSource), 'with no unbounded readline left anywhere')
+// Reading one line only holds because the writer sends one line. Server names
+// reach stdin from the API, and JSON.stringify escapes a newline in one as \\n
+// rather than emitting it raw, so a hostile name cannot cut the job short.
+assert(/syncProcess\.job = JSON\.stringify\(job\)/.test(serviceSource),
+  'the sync job goes to stdin as one JSON line')
+assert(/write\(job \+ "\\n"\)/.test(serviceSource) && /write\(secret \+ "\\n"\)/.test(serviceSource),
+  'and each stdin write is terminated, so the line read returns')
 assert((bridgeSource.match(/read_file_capped\(SSH_CONFIG, MAX_SSH_CONFIG, SSH_CONFIG\)/g) || []).length === 2, 'the ssh config is read to a ceiling, in the sync and in the uninstall')
 assert(/read_file_capped\(DEMO_FILE, MAX_DEMO_FILE, "demo file"\)/.test(bridgeSource), 'and so is the demo file')
 assert(/\[:MAX_SAMPLES\]/.test(bridgeSource), 'a metrics series is capped in samples')

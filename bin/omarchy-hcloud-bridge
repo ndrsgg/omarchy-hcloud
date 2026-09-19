@@ -17,7 +17,8 @@ Usage:
   omarchy-hcloud-bridge store LABEL           token on stdin, one line
   omarchy-hcloud-bridge remove LABEL
   omarchy-hcloud-bridge labels                labels currently in the keyring
-  omarchy-hcloud-bridge sync-ssh              job JSON on stdin, writes ~/.ssh/config
+  omarchy-hcloud-bridge sync-ssh              job JSON on stdin, one line;
+                                              writes ~/.ssh/config
   omarchy-hcloud-bridge metrics LABEL ID [WINDOW]
                                               cpu / network / disk for one server;
                                               WINDOW in seconds, default one hour
@@ -135,6 +136,22 @@ def read_capped(stream, limit, what):
     """Read at most `limit` bytes; refuse rather than truncate anything longer."""
     data = stream.read(limit + 1)
     if data is None:
+        return b""
+    if len(data) > limit:
+        raise ValueError("%s exceeds %d bytes" % (what, limit))
+    return data
+
+
+def read_line_capped(stream, limit, what):
+    """Read one line, and refuse rather than truncate anything longer.
+
+    Reading a line rather than to end-of-stream is what keeps the caller from
+    having to close the pipe: the shell writes the token and waits for an
+    answer, and a read that waited for EOF would wait on a pipe that stays open
+    for as long as the panel does.
+    """
+    data = stream.readline(limit + 1)
+    if not data:
         return b""
     if len(data) > limit:
         raise ValueError("%s exceeds %d bytes" % (what, limit))
@@ -584,7 +601,7 @@ def command_servers(labels):
 def command_store(label):
     if DEMO:
         return fail("Demo data is on — nothing is stored")
-    token = read_capped(sys.stdin.buffer, MAX_TOKEN, "token").decode("utf-8", "replace").strip()
+    token = read_line_capped(sys.stdin.buffer, MAX_TOKEN, "token").decode("utf-8", "replace").strip()
     if not token or any(ch.isspace() for ch in token):
         return fail("No token on stdin" if not token else "A token has no whitespace in it")
     store_token(label, token)
@@ -770,7 +787,7 @@ def read_sync_job():
     Refusing the whole job is deliberate: silently dropping one bad host would
     delete it from the config, which is the failure the sync is built to avoid.
     """
-    raw = read_capped(sys.stdin.buffer, MAX_STDIN, "sync job").decode("utf-8", "replace")
+    raw = read_line_capped(sys.stdin.buffer, MAX_STDIN, "sync job").decode("utf-8", "replace")
     try:
         job = json.loads(raw or "{}")
     except ValueError:

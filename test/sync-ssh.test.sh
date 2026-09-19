@@ -125,6 +125,41 @@ printf 'Host keep\n' > "$H/.ssh/config"; head -c 1100000 /dev/zero | tr '\0' '#'
 out=$(echo "$JOB" | sync "$H")
 check "an ssh config past its ceiling is refused rather than read" "$(contains "$out" 'exceeds')"
 
+# --- the panel writes one line and waits; it never closes the pipe -----------
+# Every case above pipes from a command that exits, which closes stdin for
+# free. The shell does not: its Process keeps stdin open for as long as the
+# panel lives, so a read that waited for end-of-stream would wait forever.
+H="$(sandbox openpipe)"
+out=$(HOME="$H" python3 -c '
+import select, subprocess, sys
+p = subprocess.Popen([sys.argv[1], "sync-ssh"], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, text=True)
+p.stdin.write(sys.argv[2] + "\n")
+p.stdin.flush()
+# Deliberately left open, and never closed before the answer is read.
+ready, _, _ = select.select([p.stdout], [], [], 10)
+print(p.stdout.readline() if ready else "timed out on an open stdin", end="")
+p.kill()
+' "$BRIDGE" "$JOB")
+check "a job is answered without the caller closing stdin" "$(contains "$out" '"hosts": 2')"
+check "the hosts reached the config" "$(contains "$(cat "$H/.ssh/config")" 'Host prod/web-1')"
+
+# A ceiling is only worth something if it still bites on the pipe the shell
+# actually uses: one that is written to and then left open.
+H="$(sandbox openpipe-ceiling)"
+out=$(HOME="$H" python3 -c '
+import select, subprocess, sys
+p = subprocess.Popen([sys.argv[1], "sync-ssh"], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, text=True)
+p.stdin.write("a" * 300000)
+p.stdin.flush()
+ready, _, _ = select.select([p.stdout], [], [], 10)
+print(p.stdout.readline() if ready else "timed out on an open stdin", end="")
+p.kill()
+' "$BRIDGE")
+check "an over-ceiling job is refused without the caller closing stdin" "$(contains "$out" 'exceeds')"
+check "and nothing was written for it" "$([[ ! -e $H/.ssh/config ]] && echo yes || echo no)"
+
 # --- argv validation happens before any keyring access -----------------------
 out=$("$BRIDGE" metrics prod ../etc 2>&1)
 check "a non-numeric server id never reaches a URL" "$(contains "$out" 'numeric server id')"
