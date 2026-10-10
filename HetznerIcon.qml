@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Effects
 import qs.Commons
 
+import qs.Commons as Commons
 // The Hetzner mark: a filled disc with the H knocked out of it, so the counter
 // is genuinely transparent and whatever is behind the bar shows through.
 //
@@ -18,7 +19,7 @@ Item {
   id: root
 
   property real iconSize: Style.font.icon
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
   property string fontFamily: Style.font.family
   property bool dimmed: false
 
